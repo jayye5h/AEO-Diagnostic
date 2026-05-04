@@ -7,6 +7,18 @@ type FetchHtmlResult = {
 };
 
 const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_LOG_LEVEL = "warn";
+
+function resolveTimeoutMs(fallback: number) {
+  const envValue = Number(process.env.SCRAPER_TIMEOUT_MS);
+  if (Number.isFinite(envValue) && envValue > 0) return envValue;
+  return fallback;
+}
+
+function shouldLogWarnings(): boolean {
+  const level = (process.env.SCRAPER_LOG_LEVEL || DEFAULT_LOG_LEVEL).toLowerCase();
+  return level !== "silent";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -77,8 +89,9 @@ function coerceNumber(value: unknown): number | undefined {
 }
 
 async function fetchHtml(url: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<FetchHtmlResult> {
+  const effectiveTimeoutMs = resolveTimeoutMs(timeoutMs);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(() => controller.abort(), effectiveTimeoutMs);
 
   try {
     const res = await fetch(url, {
@@ -97,10 +110,16 @@ async function fetchHtml(url: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<F
     return { html, httpStatus };
   } catch (err: any) {
     if (err.name === "AbortError") {
-      console.warn(`[Scraper Timeout] Fetching ${url} took longer than ${timeoutMs}ms.`);
+      if (shouldLogWarnings()) {
+        console.warn(
+          `[Scraper Timeout] Fetching ${url} took longer than ${effectiveTimeoutMs}ms.`
+        );
+      }
       return { html: "", httpStatus: 408 };
     }
-    console.warn(`[Scraper Error] Fetching ${url} failed:`, err.message);
+    if (shouldLogWarnings()) {
+      console.warn(`[Scraper Error] Fetching ${url} failed:`, err?.message);
+    }
     return { html: "", httpStatus: 0 };
   } finally {
     clearTimeout(timeout);
