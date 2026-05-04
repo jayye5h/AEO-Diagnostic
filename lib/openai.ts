@@ -46,6 +46,62 @@ function timeElapsedMs(startTime: number): number {
   return Date.now() - startTime;
 }
 
+// Fallback ranking when AI fails: score products based on heuristic signals
+function fallbackRanking(products: Array<{
+  name: string;
+  url: string;
+  description?: string;
+  trustSignalsText?: string;
+  features?: string[];
+}>): RankerOutput {
+  const scored = products.map((p, i) => {
+    let score = 50; // Base score
+
+    // Boost for trust signals (ratings, reviews)
+    if (p.trustSignalsText?.toLowerCase().includes("rating=")) {
+      const match = p.trustSignalsText.match(/rating=([\d.]+)/);
+      if (match) {
+        const rating = Number(match[1]);
+        score = Math.min(100, 50 + rating * 5); // Max 100, min 50
+      }
+    }
+
+    // Boost for feature count
+    if (p.features?.length) {
+      score += Math.min(25, p.features.length);
+    }
+
+    // Description length as quality signal
+    if (p.description?.length && p.description.length > 200) {
+      score += 10;
+    }
+
+    return {
+      product: p.name,
+      url: p.url,
+      rank: 0, // Will be assigned by sort
+      score: Math.min(100, Math.max(0, score)),
+      strengths: [
+        p.features?.length ? `${p.features.length} features listed` : "Product available",
+        p.trustSignalsText ? "Trust signals present" : "Additional research recommended",
+      ].filter(Boolean),
+      weaknesses: ["AI ranking unavailable"],
+      reason: "Fallback: scored by heuristic signals due to AI service unavailability.",
+    };
+  });
+
+  // Sort by score descending, then by product name
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.product.localeCompare(b.product);
+  });
+
+  // Assign ranks
+  return {
+    rankings: scored.map((r, i) => ({ ...r, rank: i + 1 })),
+  };
+}
+
 export async function rankProductsWithGpt41(input: {
   query: string;
   products: Array<{
@@ -136,51 +192,90 @@ export async function rankProductsWithGpt41(input: {
   });
 
   const aiTimeoutMs = Math.min(Number(process.env.AI_TIMEOUT_MS) || 30000, timeoutRemainingMs - 2000);
-  let res: Response | null = null;
-  let text = "";
+  
+  // Retry logic: up to 3 total attempts (1 initial + 2 retries) with exponential backoff
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const timeBeforeAttempt = Date.now();
+    const timeRemainingBeforeAttempt = 50000 - timeElapsedMs(startTime);
+    
+    // Don't retry if less than 8 seconds remaining (need time for fallback + response)
+    if (attempt > 1 && timeRemainingBeforeAttempt < 8000) {
+      console.warn(`[OpenAI] Attempt ${attempt}: insufficient time remaining (${timeRemainingBeforeAttempt}ms), skipping retry.`);
+      break;
+    }
 
-  // Single attempt, no retry (fail-fast to avoid double-timeout)
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), aiTimeoutMs);
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: requestBody,
-      signal: controller.signal,
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), aiTimeoutMs);
+    let res: Response | null = null;
+    let text = "";
 
-    if (res.ok) {
-      const data = (await res.json()) as ChatCompletionsResponse;
-      const content = data.choices?.[0]?.message?.content ?? "";
-      const parsed = extractJsonFromModelText<RankerOutput>(content);
-      if (!parsed || !Array.isArray(parsed.rankings)) {
-        throw new Error("AI response was not valid ranking JSON");
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: requestBody,
+        signal: controller.signal,
+      });
+
+      if (res.ok) {
+        clearTimeout(timer);
+        const data = (await res.json()) as ChatCompletionsResponse;
+        const content = data.choices?.[0]?.message?.content ?? "";
+        const parsed = extractJsonFromModelText<RankerOutput>(content);
+        if (!parsed || !Array.isArray(parsed.rankings)) {
+          throw new Error("AI response was not valid ranking JSON");
+        }
+        return parsed;
       }
-      return parsed;
-    }
 
-    text = await res.text().catch(() => "");
-    if (res.status >= 500) {
-      console.warn(`[OpenAI] ${res.status} upstream error, failing fast.`);
+      text = await res.text().catch(() => "");
+      
+      if (res.status >= 500) {
+        clearTimeout(timer);
+        const elapsedThisAttempt = Date.now() - timeBeforeAttempt;
+        if (attempt < MAX_ATTEMPTS) {
+          const backoffMs = attempt === 1 ? 1000 : 2000;
+          console.warn(`[OpenAI] Attempt ${attempt}: ${res.status} upstream error. Retrying in ${backoffMs}ms...`);
+          await sleep(backoffMs);
+          continue;
+        } else {
+          console.warn(`[OpenAI] Attempt ${attempt}: ${res.status} upstream error. Max retries reached, using fallback.`);
+          return fallbackRanking(input.products);
+        }
+      }
+
+      clearTimeout(timer);
+      throw new Error(`AI request failed (${res?.status || "Network"}): ${text.slice(0, 300)}`);
+    } catch (e: any) {
+      clearTimeout(timer);
+      
+      if (e?.name === "AbortError") {
+        if (attempt < MAX_ATTEMPTS) {
+          console.warn(`[OpenAI] Attempt ${attempt}: timeout exceeded. Retrying...`);
+          await sleep(1000);
+          continue;
+        } else {
+          console.warn(`[OpenAI] Attempt ${attempt}: timeout exceeded. Max retries reached, using fallback.`);
+          return fallbackRanking(input.products);
+        }
+      }
+      
+      // For other errors on final attempt, use fallback
+      if (attempt === MAX_ATTEMPTS) {
+        console.warn(`[OpenAI] Attempt ${attempt}: error: ${e.message}. Max retries reached, using fallback.`);
+        return fallbackRanking(input.products);
+      }
+      
+      throw e;
     }
-  } catch (e: any) {
-    if (e?.name === "AbortError") {
-      throw new Error(`AI request failed (timeout): exceeded ${aiTimeoutMs}ms`);
-    }
-    throw e;
-  } finally {
-    clearTimeout(timer);
   }
 
-  if (!res || !res.ok) {
-    throw new Error(`AI request failed (${res?.status || "Network"}): ${text.slice(0, 300)}`);
-  }
-
-  // Should never reach here, but TypeScript needs it
-  return undefined as any as RankerOutput;
+  // If loop exits without return, use fallback
+  console.warn("[OpenAI] All AI attempts exhausted, using fallback ranking.");
+  return fallbackRanking(input.products);
 }
