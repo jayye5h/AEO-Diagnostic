@@ -107,7 +107,7 @@ export async function rankProductsWithGpt41(input: {
     ],
   });
 
-  const aiTimeoutMs = Number(process.env.AI_TIMEOUT_MS) || 28000;
+  const aiTimeoutMs = Number(process.env.AI_TIMEOUT_MS) || 40000;
   let res: Response | null = null;
   let text = "";
 
