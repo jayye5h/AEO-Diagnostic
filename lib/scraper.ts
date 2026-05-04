@@ -6,7 +6,7 @@ type FetchHtmlResult = {
   httpStatus: number;
 };
 
-const DEFAULT_TIMEOUT_MS = 12000;
+const DEFAULT_TIMEOUT_MS = 8000;
 const DEFAULT_LOG_LEVEL = "warn";
 
 function resolveTimeoutMs(fallback: number) {

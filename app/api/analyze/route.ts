@@ -197,31 +197,38 @@ export async function POST(req: Request) {
   }
 
   let runId: string | undefined;
-  try {
-    const supabase = getSupabaseAdmin();
-    const insertPayload = {
-      product_url: productUrl,
-      competitor_urls: competitorUrls,
-      search_question: searchQuestion,
-      rankings: ranked,
-      metrics: report.metrics,
-      suggestions: report.suggestions,
-      scraped: profiles,
-      ai_model: process.env.GITHUB_AI_MODEL || "openai/gpt-4.1",
-    };
+  // Fire-and-forget Supabase insert (don't block response on DB writes)
+  // This keeps the API response fast and avoids Vercel timeout.
+  (async () => {
+    try {
+      const supabase = getSupabaseAdmin();
+      const insertPayload = {
+        product_url: productUrl,
+        competitor_urls: competitorUrls,
+        search_question: searchQuestion,
+        rankings: ranked,
+        metrics: report.metrics,
+        suggestions: report.suggestions,
+        scraped: profiles,
+        ai_model: process.env.GITHUB_AI_MODEL || "gpt-4o",
+      };
 
-    const { data, error } = await supabase
-      .from("diagnostic_runs")
-      .insert(insertPayload)
-      .select("id")
-      .single();
+      const { data, error } = await supabase
+        .from("diagnostic_runs")
+        .insert(insertPayload)
+        .select("id")
+        .single();
 
-    if (error) throw error;
-    runId = (data as { id?: string } | null)?.id;
-  } catch {
-    // If DB isn't configured yet, still return the analysis response.
-    // This keeps the MVP usable while Supabase is being set up.
-  }
+      if (error) {
+        console.error("[Supabase] Insert failed:", error.message);
+      } else {
+        runId = (data as { id?: string } | null)?.id;
+        console.log("[Supabase] Inserted run:", runId);
+      }
+    } catch (e) {
+      console.error("[Supabase] Unexpected error:", e instanceof Error ? e.message : e);
+    }
+  })();
 
   const response: AnalyzeResponse = {
     runId,

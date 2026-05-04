@@ -20,6 +20,11 @@ function resolveGithubModelsToken(): string {
   );
 }
 
+function resolveModel(): string {
+  // gpt-4o is faster than gpt-4.1 and usually cheaper
+  return process.env.GITHUB_AI_MODEL || "gpt-4o";
+}
+
 function resolveChatCompletionsUrl(base: string): string {
   const normalized = base.replace(/\/+$/, "");
   // GitHub Models endpoint is OpenAI-compatible and commonly mounted at .../inference
@@ -51,7 +56,7 @@ export async function rankProductsWithGpt41(input: {
   }>;
 }): Promise<RankerOutput> {
   const endpoint = requireEnv("GITHUB_AI_ENDPOINT");
-  const model = process.env.GITHUB_AI_MODEL || "openai/gpt-4.1";
+  const model = resolveModel();
   const token = resolveGithubModelsToken() || requireEnv("GITHUB_TOKEN");
 
   const url = resolveChatCompletionsUrl(endpoint);
