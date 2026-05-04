@@ -42,6 +42,10 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function timeElapsedMs(startTime: number): number {
+  return Date.now() - startTime;
+}
+
 export async function rankProductsWithGpt41(input: {
   query: string;
   products: Array<{
@@ -54,10 +58,29 @@ export async function rankProductsWithGpt41(input: {
     keywords?: string[];
     trustSignalsText?: string;
   }>;
+  startTimeMs?: number;
 }): Promise<RankerOutput> {
   const endpoint = requireEnv("GITHUB_AI_ENDPOINT");
   const model = resolveModel();
   const token = resolveGithubModelsToken() || requireEnv("GITHUB_TOKEN");
+  const startTime = input.startTimeMs || Date.now();
+  const timeoutRemainingMs = 50000 - timeElapsedMs(startTime); // Leave 10s buffer for Vercel
+
+  if (timeoutRemainingMs < 5000) {
+    // Not enough time left; return a minimal fallback ranking
+    console.warn("[OpenAI] Insufficient time remaining (<5s), returning minimal ranking.");
+    return {
+      rankings: input.products.map((p, i) => ({
+        product: p.name,
+        url: p.url,
+        rank: i + 1,
+        score: 50,
+        strengths: ["Product available"],
+        weaknesses: ["Insufficient analysis time"],
+        reason: "Timeout: minimal ranking returned.",
+      })),
+    };
+  }
 
   const url = resolveChatCompletionsUrl(endpoint);
 
@@ -112,58 +135,52 @@ export async function rankProductsWithGpt41(input: {
     ],
   });
 
-  const aiTimeoutMs = Number(process.env.AI_TIMEOUT_MS) || 40000;
+  const aiTimeoutMs = Math.min(Number(process.env.AI_TIMEOUT_MS) || 30000, timeoutRemainingMs - 2000);
   let res: Response | null = null;
   let text = "";
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), aiTimeoutMs);
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-          accept: "application/json",
-        },
-        body: requestBody,
-        signal: controller.signal,
-      });
+  // Single attempt, no retry (fail-fast to avoid double-timeout)
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), aiTimeoutMs);
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: requestBody,
+      signal: controller.signal,
+    });
 
-      if (res.ok) break;
-
-      text = await res.text().catch(() => "");
-      // Retry once on transient upstream errors, but with short backoff.
-      if (res.status >= 500 && attempt === 1) {
-        console.warn(`[OpenAI] ${res.status} upstream error, retrying...`);
-        await sleep(250);
-        continue;
+    if (res.ok) {
+      const data = (await res.json()) as ChatCompletionsResponse;
+      const content = data.choices?.[0]?.message?.content ?? "";
+      const parsed = extractJsonFromModelText<RankerOutput>(content);
+      if (!parsed || !Array.isArray(parsed.rankings)) {
+        throw new Error("AI response was not valid ranking JSON");
       }
-
-      break;
-    } catch (e: any) {
-      if (e?.name === "AbortError") {
-        throw new Error(`AI request failed (timeout): exceeded ${aiTimeoutMs}ms`);
-      }
-      if (attempt === 2) throw e;
-      await sleep(250);
-    } finally {
-      clearTimeout(timer);
+      return parsed;
     }
+
+    text = await res.text().catch(() => "");
+    if (res.status >= 500) {
+      console.warn(`[OpenAI] ${res.status} upstream error, failing fast.`);
+    }
+  } catch (e: any) {
+    if (e?.name === "AbortError") {
+      throw new Error(`AI request failed (timeout): exceeded ${aiTimeoutMs}ms`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
 
   if (!res || !res.ok) {
     throw new Error(`AI request failed (${res?.status || "Network"}): ${text.slice(0, 300)}`);
   }
 
-  const data = (await res.json()) as ChatCompletionsResponse;
-  const content = data.choices?.[0]?.message?.content ?? "";
-
-  const parsed = extractJsonFromModelText<RankerOutput>(content);
-  if (!parsed || !Array.isArray(parsed.rankings)) {
-    throw new Error("AI response was not valid ranking JSON");
-  }
-
-  return parsed;
+  // Should never reach here, but TypeScript needs it
+  return undefined as any as RankerOutput;
 }

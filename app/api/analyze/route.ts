@@ -88,6 +88,7 @@ function toRankedProducts(raw: unknown, fallbackProducts: Array<{ name: string; 
 }
 
 export async function POST(req: Request) {
+  const startTime = Date.now();
   const body = (await req.json().catch(() => null)) as AnalyzeRequest | null;
 
   const productUrl = typeof body?.productUrl === "string" ? body.productUrl.trim() : "";
@@ -135,7 +136,7 @@ export async function POST(req: Request) {
 
   let aiOutput;
   try {
-    aiOutput = await rankProductsWithGpt41({ query: searchQuestion, products: productInputs });
+    aiOutput = await rankProductsWithGpt41({ query: searchQuestion, products: productInputs, startTimeMs: startTime });
   } catch (e) {
     const message = e instanceof Error ? e.message : "AI error";
     const lowered = message.toLowerCase();
