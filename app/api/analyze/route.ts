@@ -138,6 +138,21 @@ export async function POST(req: Request) {
     aiOutput = await rankProductsWithGpt41({ query: searchQuestion, products: productInputs });
   } catch (e) {
     const message = e instanceof Error ? e.message : "AI error";
+    const lowered = message.toLowerCase();
+    const isUnauthorized = lowered.includes("(401)") || lowered.includes("unauthorized");
+    const isForbidden = lowered.includes("(403)") || lowered.includes("forbidden");
+
+    if (isUnauthorized || isForbidden) {
+      return NextResponse.json(
+        {
+          error: message,
+          hint:
+            "Unauthorized to call the AI endpoint. On Vercel, set a valid token in environment variables (GITHUB_TOKEN or GITHUB_MODELS_TOKEN) and redeploy.",
+        },
+        { status: 401 }
+      );
+    }
+
     return NextResponse.json(
       { error: message, hint: "Check GITHUB_TOKEN / GITHUB_AI_ENDPOINT / GITHUB_AI_MODEL" },
       { status: 502 }

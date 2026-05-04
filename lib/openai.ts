@@ -3,8 +3,21 @@ import { extractJsonFromModelText } from "./parser";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`Missing env var: ${name}`);
-  return value;
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) throw new Error(`Missing env var: ${name}`);
+  return trimmed;
+}
+
+function resolveGithubModelsToken(): string {
+  // Support a few common names people use in CI/Vercel.
+  return (
+    process.env.GITHUB_TOKEN?.trim() ||
+    process.env.GITHUB_MODELS_TOKEN?.trim() ||
+    process.env.GITHUB_AI_TOKEN?.trim() ||
+    process.env.GH_MODELS_TOKEN?.trim() ||
+    process.env.GITHUB_PAT?.trim() ||
+    ""
+  );
 }
 
 function resolveChatCompletionsUrl(base: string): string {
@@ -28,7 +41,7 @@ export async function rankProductsWithGpt41(input: {
 }): Promise<RankerOutput> {
   const endpoint = requireEnv("GITHUB_AI_ENDPOINT");
   const model = process.env.GITHUB_AI_MODEL || "openai/gpt-4.1";
-  const token = requireEnv("GITHUB_TOKEN");
+  const token = resolveGithubModelsToken() || requireEnv("GITHUB_TOKEN");
 
   const url = resolveChatCompletionsUrl(endpoint);
 
@@ -93,6 +106,7 @@ export async function rankProductsWithGpt41(input: {
         headers: {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
+          accept: "application/json",
         },
         body: requestBody,
       });
