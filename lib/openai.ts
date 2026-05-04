@@ -72,27 +72,49 @@ export async function rankProductsWithGpt41(input: {
     "}\n\n" +
     `Products:\n${productBlock}`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      // Many OpenAI-compatible gateways support this; if unsupported it will be ignored.
-      response_format: { type: "json_object" },
-    }),
+  const requestBody = JSON.stringify({
+    model,
+    temperature: 0.2,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
   });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`AI request failed (${res.status}): ${text.slice(0, 300)}`);
+  let res: Response | null = null;
+  let text = "";
+  let attempt = 0;
+  
+  while (attempt < 2) {
+    attempt++;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: requestBody,
+      });
+      
+      if (res.ok) break; // Success!
+      text = await res.text().catch(() => "");
+      
+      // If it's a 500 error from the model, we can try one more time
+      if (res.status >= 500 && attempt < 2) {
+        console.warn(`[OpenAI] ${res.status} upstream error, retrying...`);
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      
+      break; // Fall through and throw
+    } catch (e) {
+      if (attempt >= 2) throw e;
+    }
+  }
+
+  if (!res || !res.ok) {
+    throw new Error(`AI request failed (${res?.status || "Network"}): ${text.slice(0, 300)}`);
   }
 
   const data = (await res.json()) as ChatCompletionsResponse;
