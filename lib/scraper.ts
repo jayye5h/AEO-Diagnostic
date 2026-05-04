@@ -95,6 +95,13 @@ async function fetchHtml(url: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<F
     const httpStatus = res.status;
     const html = await res.text();
     return { html, httpStatus };
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      console.warn(`[Scraper Timeout] Fetching ${url} took longer than ${timeoutMs}ms.`);
+      return { html: "", httpStatus: 408 };
+    }
+    console.warn(`[Scraper Error] Fetching ${url} failed:`, err.message);
+    return { html: "", httpStatus: 0 };
   } finally {
     clearTimeout(timeout);
   }

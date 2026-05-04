@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import type { AnalyzeRequest, AnalyzeResponse, ProductProfile, RankedProduct } from "@/lib/types";
 
 export const runtime = "nodejs";
+export const maxDuration = 60; // Allow Vercel route to run up to 60s
 
 function isValidHttpUrl(value: string): boolean {
   try {
