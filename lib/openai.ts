@@ -26,6 +26,17 @@ function resolveChatCompletionsUrl(base: string): string {
   return `${normalized}/chat/completions`;
 }
 
+function truncateText(value: string | undefined, maxChars: number): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > maxChars ? `${trimmed.slice(0, Math.max(0, maxChars - 1))}…` : trimmed;
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export async function rankProductsWithGpt41(input: {
   query: string;
   products: Array<{
@@ -58,16 +69,18 @@ export async function rankProductsWithGpt41(input: {
       lines.push(`URL: ${p.url}`);
       if (p.category) lines.push(`Category: ${p.category}`);
       if (p.priceText) lines.push(`Price: ${p.priceText}`);
-      if (p.description) lines.push(`Description: ${p.description}`);
-      if (p.features?.length) lines.push(`Features: ${p.features.slice(0, 12).join("; ")}`);
-      if (p.keywords?.length) lines.push(`Keywords: ${p.keywords.slice(0, 15).join(", ")}`);
+      const shortDescription = truncateText(p.description, 420);
+      if (shortDescription) lines.push(`Description: ${shortDescription}`);
+      if (p.features?.length) lines.push(`Features: ${p.features.slice(0, 8).join("; ")}`);
+      if (p.keywords?.length) lines.push(`Keywords: ${p.keywords.slice(0, 10).join(", ")}`);
       if (p.trustSignalsText) lines.push(`Trust: ${p.trustSignalsText}`);
       return lines.join("\n");
     })
     .join("\n\n");
 
+  const safeQuery = truncateText(input.query, 240) || input.query;
   const user =
-    `User Search Query:\n${input.query}\n\n` +
+    `User Search Query:\n${safeQuery}\n\n` +
     "Analyze these products and rank them by recommendation quality.\n\n" +
     "Return JSON only with this shape:\n" +
     "{\n" +
@@ -94,12 +107,13 @@ export async function rankProductsWithGpt41(input: {
     ],
   });
 
+  const aiTimeoutMs = Number(process.env.AI_TIMEOUT_MS) || 28000;
   let res: Response | null = null;
   let text = "";
-  let attempt = 0;
-  
-  while (attempt < 2) {
-    attempt++;
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), aiTimeoutMs);
     try {
       res = await fetch(url, {
         method: "POST",
@@ -109,21 +123,28 @@ export async function rankProductsWithGpt41(input: {
           accept: "application/json",
         },
         body: requestBody,
+        signal: controller.signal,
       });
-      
-      if (res.ok) break; // Success!
+
+      if (res.ok) break;
+
       text = await res.text().catch(() => "");
-      
-      // If it's a 500 error from the model, we can try one more time
-      if (res.status >= 500 && attempt < 2) {
+      // Retry once on transient upstream errors, but with short backoff.
+      if (res.status >= 500 && attempt === 1) {
         console.warn(`[OpenAI] ${res.status} upstream error, retrying...`);
-        await new Promise((r) => setTimeout(r, 2000));
+        await sleep(250);
         continue;
       }
-      
-      break; // Fall through and throw
-    } catch (e) {
-      if (attempt >= 2) throw e;
+
+      break;
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        throw new Error(`AI request failed (timeout): exceeded ${aiTimeoutMs}ms`);
+      }
+      if (attempt === 2) throw e;
+      await sleep(250);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
