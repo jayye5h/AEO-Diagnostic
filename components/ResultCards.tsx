@@ -5,10 +5,9 @@ import { motion } from "framer-motion";
 
 export function ResultCards({ metrics }: { metrics: AnalyzeResponse["metrics"] }) {
     const cards = [
-        {
-            label: "AI Visibility", value: `${metrics.aiVisibility}%` },
-        { label: "Competitive Strength", value: metrics.competitiveStrength || "Medium",  },
-        { label: "Trust Score", value: metrics.trustScore || "Medium",  },
+        { label: "AI Visibility", value: `${metrics.aiVisibility}%` },
+        { label: "Competitive Strength", value: metrics.competitiveStrength || "Medium" },
+        { label: "Trust Score", value: metrics.trustScore || "Medium" },
     ];
 
     return (
@@ -24,7 +23,7 @@ export function ResultCards({ metrics }: { metrics: AnalyzeResponse["metrics"] }
                     <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
                         {card.label}
                     </p>
-                    <p className={`text-3xl font-black tracking-tight ${card.color}`}>
+                    <p className="text-3xl font-black tracking-tight text-white">
                         {card.value}
                     </p>
                 </motion.div>
