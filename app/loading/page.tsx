@@ -11,6 +11,23 @@ export default function LoadingPage() {
     const router = useRouter();
     const [error, setError] = useState<string | null>(null);
 
+    async function readJsonOrText(res: Response): Promise<{ json?: unknown; text?: string }> {
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+            try {
+                return { json: await res.json() };
+            } catch {
+                // Fall back to text below
+            }
+        }
+
+        try {
+            return { text: await res.text() };
+        } catch {
+            return { text: "" };
+        }
+    }
+
     useEffect(() => {
         const raw = sessionStorage.getItem("aeo:lastRun");
         if (!raw) return;
@@ -26,9 +43,19 @@ export default function LoadingPage() {
                     body: JSON.stringify(parsed),
                 });
 
-                const data = (await res.json()) as AnalyzeResponse & { error?: string };
+                const { json, text } = await readJsonOrText(res);
+                const data = (json ?? null) as (AnalyzeResponse & { error?: string }) | null;
                 if (!res.ok) {
-                    throw new Error(data?.error || "Analyze failed");
+                    const messageFromJson = data && typeof data === "object" ? (data as any).error : undefined;
+                    const message =
+                        (typeof messageFromJson === "string" && messageFromJson.trim())
+                            ? messageFromJson
+                            : (text?.trim() ? text.slice(0, 200) : "Analyze failed");
+                    throw new Error(message);
+                }
+
+                if (!data) {
+                    throw new Error("Analyze failed: empty response");
                 }
 
                 if (cancelled) return;
