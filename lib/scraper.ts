@@ -209,6 +209,8 @@ function extractMeta($: cheerio.CheerioAPI) {
     meta("meta[name='twitter:title']") ||
     $("title").first().text().trim() ||
     $("h1").first().text().trim() ||
+    $("[class*='product'], [class*='title'], [class*='name']").first().text().trim() ||
+    $("h2").first().text().trim() ||
     undefined;
 
   const description =
@@ -263,10 +265,29 @@ export async function scrapeProductPage(url: string): Promise<ProductProfile> {
   const listFeatures = extractListFeatures($);
 
   const name = jsonLd.product?.name || meta.title;
+  
+  // Enhanced fallback: try to extract name from URL pathname if no name found
+  let finalName = name;
+  if (!finalName) {
+    try {
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      // Try to extract from path: /s/abc123 -> use domain, /product/name -> extract name
+      if (pathname.includes("product")) {
+        const parts = pathname.split("/").filter(Boolean);
+        const productIdx = parts.indexOf("product");
+        if (productIdx >= 0 && parts[productIdx + 1]) {
+          finalName = parts[productIdx + 1].replace(/[-_]/g, " ");
+        }
+      }
+    } catch {
+      // Ignore URL parsing errors
+    }
+  }
 
   const product: ProductProfile = {
     url,
-    name: name ? normalizeWhitespace(name) : undefined,
+    name: finalName ? normalizeWhitespace(finalName) : undefined,
     title: meta.title,
     description: jsonLd.product?.description || meta.description,
     category: jsonLd.product?.category || undefined,

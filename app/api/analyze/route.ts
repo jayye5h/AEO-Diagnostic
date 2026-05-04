@@ -26,6 +26,21 @@ function nameFromUrl(url: string): string {
   }
 }
 
+function generateProductName(url: string, description?: string): string {
+  // If we have a description, use the first meaningful part
+  if (description) {
+    const firstSentence = description.split(/[.!?]/)[0];
+    if (firstSentence && firstSentence.length > 5 && firstSentence.length < 80) {
+      return firstSentence.trim();
+    }
+    const words = firstSentence.trim().split(" ").slice(0, 5).join(" ");
+    if (words.length > 5) return words;
+  }
+  
+  // Otherwise use domain
+  return nameFromUrl(url);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -123,7 +138,7 @@ export async function POST(req: Request) {
     if (typeof p.trustSignals?.reviewCount === "number") trustParts.push(`reviews=${p.trustSignals.reviewCount}`);
 
     return {
-      name: p.name || nameFromUrl(p.url),
+      name: p.name || generateProductName(p.url, p.description),
       url: p.url,
       description: p.description,
       category: p.category,
