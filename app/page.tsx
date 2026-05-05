@@ -33,12 +33,22 @@ export default function Home() {
       <div className="pointer-events-none absolute right-[-10rem] top-24 h-[28rem] w-[28rem] rounded-full bg-cyan-400/15 blur-[120px] animate-floaty" />
 
       <main className="relative mx-auto flex w-full max-w-7xl flex-col gap-10 px-6 py-8 lg:px-8 lg:py-10">
-        <header className="glass-panel flex items-center justify-between rounded-full px-5 py-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-white/50">AEO Diagnostic</p>
-            <p className="text-sm font-medium text-white/90">See how AI recommends your product</p>
+        <header className="glass-panel flex items-center justify-between rounded-full px-6 py-4 backdrop-blur-xl border border-white/10">
+          <div className="flex items-center gap-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-300 via-fuchsia-400 to-lime-300 text-sm font-bold text-black shadow-lg">
+              ⚡
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.35em] font-semibold text-white/60">AEO Diagnostic</p>
+              <p className="text-sm font-medium bg-gradient-to-r from-cyan-200 to-fuchsia-300 bg-clip-text text-transparent">See how AI recommends your product</p>
+            </div>
           </div>
 
+          <div className="flex items-center gap-3">
+
+            <div className="h-8 w-px bg-white/10" />
+            <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">v1.0</span>
+          </div>
         </header>
 
         <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
@@ -48,10 +58,6 @@ export default function Home() {
             transition={{ duration: 0.7, ease: "easeOut" }}
             className="space-y-6"
           >
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-white/75 shadow-[0_16px_60px_-24px_rgba(0,0,0,0.55)]">
-              <span className="h-2 w-2 rounded-full bg-fuchsia-400 shadow-[0_0_18px_rgba(232,121,249,0.9)]" />
-              Funky SaaS built for AI visibility analysis
-            </div>
 
             <div className="space-y-5">
               <h1 className="max-w-4xl text-5xl font-black tracking-tight text-white sm:text-6xl lg:text-7xl">
@@ -200,6 +206,7 @@ export default function Home() {
       <footer className="relative border-t border-white/10 bg-white/5">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 px-6 py-8 text-sm text-white/55 lg:px-8">
           <p className="font-medium text-white/80">Understand how AI ranks your product against competitors.</p>
+          <p>@ 2026 AEO Diagnostic. All rights reserved.</p>
 
         </div>
       </footer>

@@ -3,6 +3,7 @@ import { scrapeProductPage } from "@/lib/scraper";
 import type { ScrapeRequest, ScrapeResponse, ScrapeResult } from "@/lib/types";
 
 export const runtime = "nodejs";
+export const maxDuration = 60; // Allow up to 60 seconds for scraping with Puppeteer fallback
 
 function isValidHttpUrl(value: string): boolean {
   try {
